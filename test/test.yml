@@ -1,0 +1,13 @@
+aaa :
+    id: 1
+    enabled: false
+    a: 100
+    b: 200
+    c: 300
+    d:
+       - 1
+       - 2
+    node:
+        name: aaaa
+    
+
