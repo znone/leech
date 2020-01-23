@@ -7,9 +7,11 @@ Leech is a library of pure header files, which is very small and does not requir
 
 | Document Type | Header | Library |
 | ------- | ------ | ------ |
-| json | leech/json.hpp | [nlohmann/json](https://github.com/nlohmann/json)
-| yaml | leech/yaml.hpp | [YAML-CPP](https://github.com/jbeder/yaml-cpp)
+| JSON | leech/json.hpp | [nlohmann/json](https://github.com/nlohmann/json)
+| YAML | leech/yaml.hpp | [YAML-CPP](https://github.com/jbeder/yaml-cpp)
+| TOML |  leech/toml.hpp | [toml11](https://github.com/ToruNiina/toml11)
 | config |  leech/config.hpp | [libconfig](https://github.com/hyperrealm/libconfig)
+| info |  leech/info.hpp | [boost.property_tree](https://www.boost.org/doc/libs/release/libs/property_tree/)
 
 Leech is decoupled from the document format. As long as a certain document format is wrapped with an interface required by leech, leech can serialize objects into the document.
 
