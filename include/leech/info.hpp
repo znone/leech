@@ -77,6 +77,7 @@ public:
 	template<typename T>
 	void put(element_type& element, const std::vector<T>& v) const
 	{
+		element.clear();
 		for (size_t i = 0; i != v.size(); i++)
 		{
 			document temp;
@@ -87,6 +88,7 @@ public:
 	template<typename T>
 	void put(element_type& element, const std::map<std::string, T>& v) const
 	{
+		element.clear();
 		for (const auto& item : v)
 		{
 			document temp;
@@ -97,6 +99,7 @@ public:
 	template<typename T>
 	void put(element_type& element, const std::unordered_map<std::string, T>& v) const
 	{
+		element.clear();
 		for (const auto& item : v)
 		{
 			document temp;
@@ -108,7 +111,7 @@ public:
 	template<typename T>
 	void get(const element_type& element, T& v) const
 	{
-		element.get_value(v);
+		v=element.get_value<T>();
 	}
 	template<typename T>
 	void get(const element_type& element, std::vector<T>& v) const
