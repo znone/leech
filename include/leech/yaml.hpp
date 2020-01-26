@@ -40,7 +40,7 @@ public:
 
 	element_type& root() noexcept { return _root;  }
 	const element_type& root() const noexcept { return _root; }
-	const element_type operator[](const char* name) const
+	const element_type& operator[](const char* name) const
 	{
 		return _root[name];
 	}
@@ -48,7 +48,7 @@ public:
 	{
 		return _root[name];
 	}
-	const element_type child(const element_type& element, const char* name) const
+	const element_type& child(const element_type& element, const char* name) const
 	{
 		return element[name];
 	}

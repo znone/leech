@@ -23,16 +23,19 @@ namespace leech
 			explicit error(const char* text = nullptr) : _error(CONFIG_ERR_NONE), _text(text) { }
 			explicit error(config_t& config)
 			{
-				std::ostringstream oss;
 				_error = config_error_type(&config);
 				const char* text = config_error_text(&config);
 				const char* file = config_error_file(&config);
 				int line = config_error_line(&config);
 
-				if (file) oss << file;
-				oss << "(" << line << ")";
-				oss << "error(" << _error << "): " << text;
-				_text = oss.str();
+				if (_error != CONFIG_ERR_NONE)
+				{
+					std::ostringstream oss;
+					if (file) oss << file;
+					if (line) oss << "(" << line << ")";
+					oss << "error(" << _error << "): " << text;
+					_text = oss.str();
+				}
 			}
 
 			const char* what() const noexcept override { return _text.data(); }
@@ -299,45 +302,62 @@ namespace leech
 			setting& operator=(const std::vector<T>& value)
 			{
 				change(CONFIG_TYPE_ARRAY);
+				clear();
 				for (const auto& item : value)
 				{
 					setting element(config_setting_add(_setting, NULL, config_type<T>::value));
 					leech::config::assign<T>()(element, item);
 				}
+				return *this;
 			}
 
 			template<typename T1, typename T2>
 			setting& operator=(const std::pair<T1, T2>& value)
 			{
 				change(CONFIG_TYPE_LIST);
+				clear();
 				assign_tuple < std::make_index_sequence < std::tuple_size<std::pair<T1, T2>>::value> >(value);
+				return *this;
 			}
 			template<typename... Types>
 			setting& operator=(const std::tuple<Types...>& value)
 			{
 				change(CONFIG_TYPE_LIST);
+				clear();
 				assign_tuple < std::make_index_sequence < std::tuple_size<std::tuple<Types...>>::value> > (value);
+				return *this;
 			}
 
 			template<typename T>
 			setting& operator=(const std::map<std::string, T>& value)
 			{
 				change(CONFIG_TYPE_GROUP);
+				clear();
 				for (const auto& item : value)
 				{
 					setting element(config_setting_add(_setting, item.first, config_type<T>::value));
 					leech::config::assign<T>()(element, item.second);
 				}
+				return *this;
 			}
 			template<typename T>
 			setting& operator=(const std::unordered_map<std::string, T>& value)
 			{
 				change(CONFIG_TYPE_GROUP);
+				clear();
 				for (const auto& item : value)
 				{
 					setting element(config_setting_add(_setting, item.first, config_type<T>::value));
 					leech::config::assign<T>()(element, item.second);
 				}
+				return *this;
+			}
+
+			void clear()
+			{
+				int count = config_setting_length(_setting);
+				for (int i = 0; i != count; i++)
+					verify(config_setting_remove_elem(_setting, i));
 			}
 
 		private:
@@ -351,18 +371,24 @@ namespace leech
 			}
 			void change(int type)
 			{
-				if (type != CONFIG_TYPE_INT)
+				if (this->type() != type)
 				{
 					config_setting_t* parent = config_setting_parent(_setting);
 					if (parent)
 					{
 						std::string name = this->name();
 						config_setting_remove(parent, name.data());
-						config_setting_add(parent, name.data(), CONFIG_TYPE_INT);
+						config_setting_add(parent, name.data(), type);
 					}
 					else
 					{
-						throw error();
+						config_t* config = _setting->config;
+						const char** filenames = config->filenames;
+						config->filenames = NULL;
+						config_clear(config);
+						config->filenames = filenames;
+						_setting = config_root_setting(config);
+						_setting->type = type;
 					}
 				}
 			}
@@ -479,9 +505,7 @@ namespace leech
 			document(const document&) = delete;
 			document(document&& src)
 			{
-				memcpy(&_config, &src._config, sizeof(config_t));
-				config_init(&src._config);
-				config_set_auto_convert(&src._config, CONFIG_TRUE);
+				move_config(&_config, &src._config);
 			}
 			~document()
 			{
@@ -493,24 +517,18 @@ namespace leech
 				if (this != &src)
 				{
 					config_clear(&_config);
-					memcpy(&_config, &src._config, sizeof(config_t));
-					config_init(&src._config);
-					config_set_auto_convert(&src._config, CONFIG_TRUE);
+					move_config(&_config, &src._config);
 				}
 				return *this;
 			}
 
 			void save(FILE* stream)
 			{
-				verify(config_read(&_config, stream));
+				config_write(&_config, stream);
 			}
 			void save_file(const char* filename)
 			{
-				verify(config_read_file(&_config, filename));
-			}
-			void save(const char* text)
-			{
-				verify(config_read_string(&_config, text));
+				verify(config_write_file(&_config, filename));
 			}
 
 			element_type root() const { return element_type(config_root_setting(&_config)); }
@@ -566,6 +584,11 @@ namespace leech
 			template<typename T>
 			void put(element_type& element, const T& v) const
 			{
+				put(std::forward<element_type>(element), v);
+			}
+			template<typename T>
+			void put(element_type&& element, const T& v) const
+			{
 				assign<T>()(element, v);
 			}
 
@@ -575,29 +598,21 @@ namespace leech
 				as_to<T>()(element, v);
 			}
 
-			static document load(const char* input)
+			void load(const char* input)
 			{
-				document doc;
-				doc.verify(config_read_string(&doc._config, input));
-				return doc;
+				verify(config_read_string(&_config, input));
 			}
-			static document load(const std::string& input)
+			void load(const std::string& input)
 			{
-				document doc;
-				doc.verify(config_read_string(&doc._config, input.data()));
-				return doc;
+				verify(config_read_string(&_config, input.data()));
 			}
-			static document load(FILE* input)
+			void load(FILE* input)
 			{
-				document doc;
-				doc.verify(config_read(&doc._config, input));
-				return doc;
+				verify(config_read(&_config, input));
 			}
-			static document load_file(const char* filename)
+			void load_file(const char* filename)
 			{
-				document doc;
-				doc.verify(config_read_file(&doc._config, filename));
-				return doc;
+				verify(config_read_file(&_config, filename));
 			}
 
 		private:
@@ -608,6 +623,30 @@ namespace leech
 				if (code == CONFIG_FALSE)
 				{
 					throw error(_config);
+				}
+			}
+
+			void move_config(config_t* dest, config_t* src)
+			{
+				memcpy(dest, src, sizeof(config_t));
+				move_config(dest, src->root);
+				config_init(src);
+				config_set_auto_convert(src, CONFIG_TRUE);
+			}
+			void move_config(config_t* dest, config_setting_t* setting)
+			{
+				setting->config = dest;
+				if (config_setting_is_array(setting) ||
+					config_setting_is_list(setting) ||
+					config_setting_is_group(setting))
+				{
+					int length = config_setting_length(setting);
+					for (int i = 0; i != length; i++)
+					{
+						config_setting_t* element = config_setting_get_elem(setting, i);
+						element->config = dest;
+						move_config(dest, element);
+					}
 				}
 			}
 		};

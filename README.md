@@ -5,13 +5,13 @@ Leech can serialize C++ objects to json, yaml, config, etc. The field informatio
 
 Leech is a library of pure header files, which is very small and does not require compilation. Using leech requires boost.preprocessor and a compiler that supports C ++ 14. In addition, according to the document format, you need to install the corresponding library.
 
-| Document Type | Header | Library |
-| ------- | ------ | ------ |
-| JSON | leech/json.hpp | [nlohmann/json](https://github.com/nlohmann/json)
-| YAML | leech/yaml.hpp | [YAML-CPP](https://github.com/jbeder/yaml-cpp)
-| TOML |  leech/toml.hpp | [toml11](https://github.com/ToruNiina/toml11)
-| config |  leech/config.hpp | [libconfig](https://github.com/hyperrealm/libconfig)
-| info |  leech/info.hpp | [boost.property_tree](https://www.boost.org/doc/libs/release/libs/property_tree/)
+| Document Type | Header | Library | Other Type |
+| ------- | ------ | ------ | ------ |
+| JSON | [leech/json.hpp](https://github.com/znone/leech/blob/master/include/leech/json.hpp) | [nlohmann/json](https://github.com/nlohmann/json) | BSON, MessagePack
+| YAML | [leech/yaml.hpp](https://github.com/znone/leech/blob/master/include/leech/yaml.hpp) | [YAML-CPP](https://github.com/jbeder/yaml-cpp) |
+| TOML |  [leech/toml.hpp](https://github.com/znone/leech/blob/master/include/leech/toml.hpp) | [toml11](https://github.com/ToruNiina/toml11) |
+| config |  [leech/config.hpp](https://github.com/znone/leech/blob/master/include/leech/config.hpp) | [libconfig](https://github.com/hyperrealm/libconfig) |
+| info |  [leech/info.hpp](https://github.com/znone/leech/blob/master/include/leech/info.hpp) | [boost.property_tree](https://www.boost.org/doc/libs/release/libs/property_tree/) | XML, INI, JSON
 
 Leech is decoupled from the document format. As long as a certain document format is wrapped with an interface required by leech, leech can serialize objects into the document.
 
