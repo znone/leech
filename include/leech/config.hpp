@@ -385,7 +385,11 @@ namespace leech
 						config_t* config = _setting->config;
 						const char** filenames = config->filenames;
 						config->filenames = NULL;
+#if LIBCONFIG_VER_MAJOR*100+LIBCONFIG_VER_MINOR > 170 
 						config_clear(config);
+#else
+						config_read(config, NULL);
+#endif 
 						config->filenames = filenames;
 						_setting = config_root_setting(config);
 						_setting->type = type;
@@ -516,7 +520,11 @@ namespace leech
 			{
 				if (this != &src)
 				{
+#if LIBCONFIG_VER_MAJOR*100+LIBCONFIG_VER_MINOR > 170 
 					config_clear(&_config);
+#else
+					config_read(&_config, NULL);
+#endif 
 					move_config(&_config, &src._config);
 				}
 				return *this;

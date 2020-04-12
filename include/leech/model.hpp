@@ -8,6 +8,7 @@
 #include <map>
 #include <type_traits>
 #include <unordered_map>
+#include <functional>
 #include <string.h>
 #include <boost/preprocessor.hpp>
 
@@ -20,16 +21,57 @@ namespace detail
 	class struct_info;
 
 	template<typename T, typename M>
+	struct setter
+	{
+		typedef M value_type;
+		setter(M T::* m) : _m(m) { }
+		setter(const setter&) = default;
+		void operator()(T& s, const M& v) const
+		{
+			s.*_m = v;
+		}
+		void operator()(T& s, M&& v) const
+		{
+			s.*_m = std::move(v);
+		}
+
+	private:
+		M T::* _m;
+	};
+
+	template<typename T, typename M>
+	struct getter
+	{
+		typedef M value_type;
+		getter(M T::* m) : _m(m) { }
+		getter(const getter&) = default;
+		M& operator()(T& s) const noexcept
+		{
+			return s.*_m;
+		}
+		const M& operator()(const T& s) const noexcept
+		{
+			return s.*_m;
+		}
+
+	private:
+		M T::* _m;
+	};
+
+	template<typename T, typename Getter, typename Setter>
 	struct struct_field
 	{
 	public:
-		typedef M value_type;
+		typedef std::remove_cv_t<std::remove_reference_t<typename std::result_of<Getter(T&)>::type>> value_type;
 		template<size_t N>
-		struct_field(const char(&name)[N], M T::*field) noexcept
-			: _name(name), _field(field), _optional(false) { }
+		struct_field(const char(&name)[N], const Getter& getter, const Setter& setter) noexcept
+			: _name(name), _setter(setter), _getter(getter), _optional(false) { }
 		const char* name() const noexcept { return _name; }
-		value_type& value(T& v) const noexcept { return v.*_field; }
-		const value_type& value(const T& v) const noexcept { return v.*_field; }
+		
+		template<typename = std::enable_if<!std::is_same<Getter, std::nullptr_t>::value>>
+		decltype(auto) get_value(const T& v) const { return _getter(v); }
+		template<typename = std::enable_if<!std::is_same<Setter, std::nullptr_t>::value>>
+		void set_value(T& v, const value_type& f) { _setter(v, f); }
 		bool optional() const noexcept { return _optional;  }
 		void optional(bool v) noexcept { _optional = v; }
 		template<typename Document>
@@ -37,12 +79,27 @@ namespace detail
 		template<typename Document>
 		void get(const Document& doc, const typename Document::element_type& element, T& v) const;
 		template<typename Pred>
-		void visit(T& v, Pred&& pred) const;
+		void visit(const T& v, Pred&& pred) const;
+		template<typename Pred>
+		void visit(T&& v, Pred&& pred) const;
 
-	private:
+	protected:
 		const char* _name;
-		M T::* _field;
+		Setter _setter;
+		Getter _getter;
 		bool _optional;
+	};
+
+	template<typename T, typename M>
+	struct struct_data_field : public struct_field<T, getter<T, M>, setter<T, M>>
+	{
+		template<size_t N>
+		struct_data_field(const char(&name)[N], M T::*m) noexcept
+			: struct_field<T, getter<T, M>, setter<T, M>>(name, getter<T, M>(m), setter<T, M>(m)) { }
+		const M& get_value(const T& v) const noexcept { return this->_getter(v); }
+		M& get_value(T& v) const noexcept { return this->_getter(v); }
+		void set_value(T& v, const M& f) noexcept { this->_setter(v, f); }
+		void set_value(T& v, M&& f) noexcept { this->_setter(v, std::forward<M>(f)); }
 	};
 
 	template<typename>
@@ -54,14 +111,14 @@ namespace detail
 		typedef M type;
 	};
 
-	template<typename From, typename To>
-	typename std::enable_if < !std::is_convertible<From, To>::value>::type assign_helper(To& to, From& from) noexcept
+	template<typename S, typename Field, typename From>
+	typename std::enable_if < !std::is_convertible<From, typename Field::value_type>::value>::type assign_helper(S& s, Field& field, From&& from) noexcept
 	{
 	}
-	template<typename From, typename To>
-	typename std::enable_if < std::is_convertible<From, To>::value>::type assign_helper(To& to, From& from) noexcept
+	template<typename S, typename Field, typename From>
+	typename std::enable_if < std::is_convertible<From, typename Field::value_type>::value>::type assign_helper(S& s, Field& field, From&& from) noexcept
 	{
-		to = from;
+		field.set_value(s, std::forward<From>(from));
 	}
 }
 
@@ -139,7 +196,21 @@ inline void visit(const char* name, std::vector<T>& v, Pred&& pred)
 }
 
 template<typename T, typename Pred>
+inline void visit(const char* name, const std::vector<T>& v, Pred&& pred)
+{
+	for (auto& i : v)
+		pred(name, i);
+}
+
+template<typename T, typename Pred>
 inline void visit(const char* name, std::list<T>& v, Pred&& pred)
+{
+	for (auto& i : v)
+		pred(name, i);
+}
+
+template<typename T, typename Pred>
+inline void visit(const char* name, const std::list<T>& v, Pred&& pred)
 {
 	for (auto& i : v)
 		pred(name, i);
@@ -153,7 +224,21 @@ inline void visit(const char* name, std::map<K, T>& v, Pred&& pred)
 }
 
 template<typename K, typename T, typename Pred>
+inline void visit(const char* name, const std::map<K, T>& v, Pred&& pred)
+{
+	for (auto& i : v)
+		pred(i.first, i.second);
+}
+
+template<typename K, typename T, typename Pred>
 inline void visit(const char* name, std::unordered_map<K, T>& v, Pred&& pred)
+{
+	for (auto& i : v)
+		pred(i.first, i.second);
+}
+
+template<typename K, typename T, typename Pred>
+inline void visit(const char* name, const std::unordered_map<K, T>& v, Pred&& pred)
 {
 	for (auto& i : v)
 		pred(i.first, i.second);
@@ -175,7 +260,15 @@ template<typename S, typename T>
 inline bool assign(S& s, const char* name, const T& v)
 {
 	return find_field<S>(name, [&s, &v](auto& field) mutable {
-		detail::assign_helper(field.value(s), v);
+		detail::assign_helper(s, field, v);
+	});
+}
+
+template<typename S, typename T>
+inline bool assign(S& s, const char* name, T&& v)
+{
+	return find_field<S>(name, [&s, &v](auto& field) mutable {
+		detail::assign_helper(s, field, std::forward<T>(v));
 	});
 }
 
@@ -183,7 +276,15 @@ template<typename S, typename T>
 inline bool assign(S& s, size_t index, const T& v)
 {
 	return find_field<S>(index, [&s, &v](const auto& field) mutable {
-		detail::assign_helper(field.value(s), v);
+		detail::assign_helper(s, field, v);
+	});
+}
+
+template<typename S, typename T>
+inline bool assign(S& s, size_t index, T&& v)
+{
+	return find_field<S>(index, [&s, &v](const auto& field) mutable {
+		detail::assign_helper(s, field, std::forward<T>(v));
 	});
 }
 
@@ -204,12 +305,12 @@ inline void for_each(const T& v, Pred&& pred)
 	detail::struct_info<T>::instance().for_each(v, std::forward<Pred>(pred));
 }
 template<typename T, typename Pred>
-inline typename std::enable_if<is_reflected<T>::value>::type visit(const char* name, T& v, Pred&& pred) {
+inline typename std::enable_if<is_reflected<T>::value>::type visit(const char* name, T&& v, Pred&& pred) {
 	pred(name, v);
-	detail::struct_info<T>::instance().for_each(v, std::forward<Pred>(pred));
+	detail::struct_info<T>::instance().for_each(std::forward<T>(v), std::forward<Pred>(pred));
 }
 template<typename T, typename Pred>
-inline typename std::enable_if<is_reflected<T>::value>::type visit(const char* name, const T& v, const Pred&& pred) {
+inline typename std::enable_if<is_reflected<T>::value>::type visit(const char* name, const T& v, Pred&& pred) {
 	pred(name, v);
 	detail::struct_info<T>::instance().for_each(v, std::forward<Pred>(pred));
 }
@@ -217,18 +318,20 @@ inline typename std::enable_if<is_reflected<T>::value>::type visit(const char* n
 namespace detail
 {
 
-template<typename T, typename M> template<typename Document>
-inline void struct_field<T, M>::put(Document& doc, typename Document::element_type& element, const T& v) const
+template<typename T, typename Getter, typename Setter> template<typename Document>
+inline void struct_field<T, Getter, Setter>::put(Document& doc, typename Document::element_type& element, const T& v) const
 {
-	leech::put(doc, doc.child(element, name()), value(v), name());
+	leech::put(doc, doc.child(element, name()), get_value(v), name());
 }
 
-template<typename T, typename M> template<typename Document>
-inline void struct_field<T, M>::get(const Document& doc, const typename Document::element_type& element, T& v) const
+template<typename T, typename Getter, typename Setter> template<typename Document>
+inline void struct_field<T, Getter, Setter>::get(const Document& doc, const typename Document::element_type& element, T& v) const
 {
 	try
 	{
-		leech::get(doc, doc.child(element, name()), value(v), name());
+		value_type field_value;
+		leech::get(doc, doc.child(element, name()), field_value, name());
+		_setter(v, std::move(field_value));
 	}
 	catch (std::exception&)
 	{
@@ -236,10 +339,16 @@ inline void struct_field<T, M>::get(const Document& doc, const typename Document
 	}
 }
 
-template<typename T, typename M> template<typename Pred>
-inline void struct_field<T, M>::visit(T& v, Pred&& pred) const
+template<typename T, typename Getter, typename Setter> template<typename Pred>
+inline void struct_field<T, Getter, Setter>::visit(const T& v, Pred&& pred) const
 {
-	leech::visit(name(), value(v), std::forward<Pred>(pred));
+	leech::visit(name(), get_value(v), std::forward<Pred>(pred));
+}
+
+template<typename T, typename Getter, typename Setter> template<typename Pred>
+inline void struct_field<T, Getter, Setter>::visit(T&& v, Pred&& pred) const
+{
+	leech::visit(name(), get_value(std::forward<T>(v)), std::forward<Pred>(pred));
 }
 
 }
@@ -256,41 +365,71 @@ inline void struct_field<T, M>::visit(T& v, Pred&& pred) const
 #define STRUCT_MODEL_FIELD_SUFFIX
 #endif //STRUCT_MODEL_FIELD_SUFFIX
 
-#define STRUCT_MODEL_FIELD_NAME(field) BOOST_PP_STRINGIZE(field)
+#define STRUCT_MODEL_UNBOX(var) \
+	BOOST_PP_IIF(BOOST_PP_IS_BEGIN_PARENS(var), BOOST_PP_TUPLE_ELEM(0, var), var)
+
+#define STRUCT_MODEL_FIELD_NAME(field)  \
+	BOOST_PP_STRINGIZE(STRUCT_MODEL_UNBOX(field))
 
 #define STRUCT_MODEL_CLASSNAME(fields) BOOST_PP_TUPLE_ELEM(0, fields)
 
 #define STRUCT_MODEL_FIELD_FIX(field) \
 	BOOST_PP_CAT(BOOST_PP_CAT(STRUCT_MODEL_FIELD_PREFIX, field), STRUCT_MODEL_FIELD_SUFFIX)
 
-#define STRUCT_MODEL_FIELD(i, fields) \
-	&STRUCT_MODEL_CLASSNAME(fields)::STRUCT_MODEL_FIELD_FIX(BOOST_PP_TUPLE_ELEM(BOOST_PP_ADD(i, 1), fields)) 
+#define STRUCT_MODEL_ELEMENT(i, fields) \
+	BOOST_PP_TUPLE_ELEM(BOOST_PP_ADD(i, 1), fields)
 
-#define STRUCT_MODEL_FIELDVAR(i, fields) \
-	BOOST_PP_CAT(_, BOOST_PP_TUPLE_ELEM(BOOST_PP_ADD(i, 1), fields))
+#define STRUCT_MODEL_FIELD(classname, field) \
+	&classname::STRUCT_MODEL_FIELD_FIX(STRUCT_MODEL_UNBOX(field)) 
+
+#define STRUCT_MODEL_GETFUN(classname, index, fields) \
+	BOOST_PP_IF(index, std::mem_fn(&classname::BOOST_PP_TUPLE_ELEM(index, fields)), nullptr)
+
+#define STRUCT_MODEL_GETTER(classname, fields) \
+	STRUCT_MODEL_GETFUN(classname, BOOST_PP_IIF(BOOST_PP_GREATER(BOOST_PP_TUPLE_SIZE(fields), 1), 1, 0), fields)
+#define STRUCT_MODEL_SETTER(classname, fields) \
+	STRUCT_MODEL_GETFUN(classname, BOOST_PP_IIF(BOOST_PP_GREATER(BOOST_PP_TUPLE_SIZE(fields), 2), 2, 0), fields)
+
+#define STRUCT_MODEL_FIELDVAR(field) \
+	BOOST_PP_CAT(_, STRUCT_MODEL_UNBOX(field))
+
+#define STRUCT_MODEL_FIELDVAR_EX(i, fields) \
+	STRUCT_MODEL_FIELDVAR(STRUCT_MODEL_ELEMENT(i, fields))
+
+#define STRUCT_MODEL_INIT_DATA_FIELD(classname, field) \
+	struct_data_field<classname, typename field_type<decltype(STRUCT_MODEL_FIELD(classname, field))>::type> STRUCT_MODEL_FIELDVAR(field) \
+	{ STRUCT_MODEL_FIELD_NAME(field), STRUCT_MODEL_FIELD(classname, field) };
+
+#define STRUCT_MODEL_INIT_SETTER_GETTER(classname, fields) \
+		struct_field<classname, decltype(STRUCT_MODEL_GETTER(classname, fields)), decltype(STRUCT_MODEL_SETTER(classname, fields))> STRUCT_MODEL_FIELDVAR(fields) \
+		{ STRUCT_MODEL_FIELD_NAME(fields), STRUCT_MODEL_GETTER(classname, fields), STRUCT_MODEL_SETTER(classname, fields) };
+
+#define STRUCT_MODEL_INIT_FIELD_IMPL(classname, fields) \
+	BOOST_PP_TUPLE_ENUM(BOOST_PP_IIF(BOOST_PP_IS_BEGIN_PARENS(fields), \
+		(STRUCT_MODEL_INIT_SETTER_GETTER(classname, fields)), \
+		(STRUCT_MODEL_INIT_DATA_FIELD(classname, fields))))
 
 #define STRUCT_MODEL_INIT_FIELD(z, i, fields) \
-	struct_field<STRUCT_MODEL_CLASSNAME(fields), typename field_type<decltype(STRUCT_MODEL_FIELD(i, fields))>::type> STRUCT_MODEL_FIELDVAR(i, fields) \
-	{ STRUCT_MODEL_FIELD_NAME(BOOST_PP_TUPLE_ELEM(BOOST_PP_ADD(i, 1), fields)),  STRUCT_MODEL_FIELD(i, fields) } ;
+	STRUCT_MODEL_INIT_FIELD_IMPL(STRUCT_MODEL_CLASSNAME(fields), STRUCT_MODEL_ELEMENT(i, fields))
 
 #define STRUCT_MODEL_PUT_FIELD(z, i, fields) \
-	STRUCT_MODEL_FIELDVAR(i, fields).put(doc, element, v);
+	STRUCT_MODEL_FIELDVAR_EX(i, fields).put(doc, element, v);
 
 #define STRUCT_MODEL_GET_FIELD(z, i, fields) \
-	STRUCT_MODEL_FIELDVAR(i, fields).get(doc, element, v);
+	STRUCT_MODEL_FIELDVAR_EX(i, fields).get(doc, element, v);
 
 #define STRUCT_MODEL_VISIT_FIELD(z, i, fields) \
-	STRUCT_MODEL_FIELDVAR(i, fields).visit(v, std::forward<Pred>(pred));
+	STRUCT_MODEL_FIELDVAR_EX(i, fields).visit(v, std::forward<Pred>(pred));
 
 #define STRUCT_MODEL_FIND_FIELD(z, i, fields) \
-	if (strcmp(STRUCT_MODEL_FIELDVAR(i, fields).name(), name)==0) {\
-		pred(STRUCT_MODEL_FIELDVAR(i, fields)); \
+	if (strcmp(STRUCT_MODEL_FIELDVAR_EX(i, fields).name(), name)==0) {\
+		pred(STRUCT_MODEL_FIELDVAR_EX(i, fields)); \
 		return true; \
 	}
 
 #define STRUCT_MODEL_FIELD_INDEX(z, i, fields) \
 	if(i==index) {\
-		pred(STRUCT_MODEL_FIELDVAR(i, fields)); \
+		pred(STRUCT_MODEL_FIELDVAR_EX(i, fields)); \
 		return true; \
 	}
 
@@ -312,7 +451,7 @@ inline void struct_field<T, M>::visit(T& v, Pred&& pred) const
 				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_GET_FIELD, (S, __VA_ARGS__)) \
 			} \
 			template<typename Pred> \
-			void for_each(S& v, Pred&& pred) const { \
+			void for_each(S&& v, Pred&& pred) const { \
 				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_VISIT_FIELD, (S, __VA_ARGS__)) \
 			} \
 			template<typename Pred> \
