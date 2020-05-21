@@ -58,6 +58,38 @@ namespace detail
 		M T::* _m;
 	};
 
+	template<typename Tuple, size_t I>
+	struct tuple_setter
+	{
+		typedef typename std::tuple_element<I, Tuple>::type value_type;
+		tuple_setter() = default;
+		tuple_setter(const tuple_setter&) = default;
+		void operator()(Tuple& t, const value_type& v) const
+		{
+			std::get<I>(t)=v;
+		}
+		void operator()(Tuple& t, value_type&& v) const
+		{
+			std::get<I>(t) = std::move(v);
+		}
+	};
+
+	template<typename Tuple, size_t I>
+	struct tuple_getter
+	{
+		typedef typename std::tuple_element<I, Tuple>::type value_type;
+		tuple_getter() = default;
+		tuple_getter(const tuple_getter&) = default;
+		value_type& operator()(Tuple& t) const noexcept
+		{
+			return std::get<I>(t);
+		}
+		const value_type& operator()(const Tuple& t) const noexcept
+		{
+			return std::get<I>(t);
+		}
+	};
+
 	template<typename T, typename Getter, typename Setter>
 	struct struct_field
 	{
@@ -100,6 +132,19 @@ namespace detail
 		M& get_value(T& v) const noexcept { return this->_getter(v); }
 		void set_value(T& v, const M& f) noexcept { this->_setter(v, f); }
 		void set_value(T& v, M&& f) noexcept { this->_setter(v, std::forward<M>(f)); }
+	};
+
+	template<typename Tuple, size_t I>
+	struct struct_tuple_field : public struct_field<Tuple, tuple_getter<Tuple, I>, tuple_setter<Tuple, I>>
+	{
+		typedef struct_field<Tuple, tuple_getter<Tuple, I>, tuple_setter<Tuple, I>> base_class;
+		template<size_t N>
+		struct_tuple_field(const char(&name)[N]) noexcept
+			: struct_field<Tuple, tuple_getter<Tuple, I>, tuple_setter<Tuple, I>>(name, tuple_getter<Tuple, I>(), tuple_setter<Tuple, I>()) { }
+		const typename base_class::value_type& get_value(const Tuple& v) const noexcept { return this->_getter(v); }
+		typename base_class::value_type& get_value(Tuple& v) const noexcept { return this->_getter(v); }
+		void set_value(Tuple& v, const typename base_class::value_type& f) noexcept { this->_setter(v, f); }
+		void set_value(Tuple& v, typename base_class::value_type&& f) noexcept { this->_setter(v, std::forward<base_class::value_type>(f)); }
 	};
 
 	template<typename>
@@ -394,7 +439,7 @@ inline void struct_field<T, Getter, Setter>::visit(T&& v, Pred&& pred) const
 	BOOST_PP_CAT(_, STRUCT_MODEL_UNBOX(field))
 
 #define STRUCT_MODEL_FIELDVAR_EX(i, fields) \
-	STRUCT_MODEL_FIELDVAR(STRUCT_MODEL_ELEMENT(i, fields))
+	STRUCT_MODEL_FIELDVAR(BOOST_PP_TUPLE_ELEM(i, fields))
 
 #define STRUCT_MODEL_INIT_DATA_FIELD(classname, field) \
 	struct_data_field<classname, typename field_type<decltype(STRUCT_MODEL_FIELD(classname, field))>::type> STRUCT_MODEL_FIELDVAR(field) \
@@ -428,7 +473,7 @@ inline void struct_field<T, Getter, Setter>::visit(T&& v, Pred&& pred) const
 	}
 
 #define STRUCT_MODEL_FIELD_INDEX(z, i, fields) \
-	if(i==index) {\
+	else if (i==index) {\
 		pred(STRUCT_MODEL_FIELDVAR_EX(i, fields)); \
 		return true; \
 	}
@@ -440,33 +485,34 @@ inline void struct_field<T, Getter, Setter>::visit(T&& v, Pred&& pred) const
 	namespace leech { \
 		namespace detail { \
 		template<> class struct_info<S> { public: \
+			typedef S struct_type; \
 			struct_info() = default; \
 			enum { field_count = BOOST_PP_TUPLE_SIZE((__VA_ARGS__)) };\
 			template<typename Document> \
 			void put(Document& doc, typename Document::element_type& element,  const S& v) const { \
-				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_PUT_FIELD, (S, __VA_ARGS__)) \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_PUT_FIELD, (__VA_ARGS__)) \
 			} \
 			template<typename Document> \
 			void get(Document& doc, const typename Document::element_type& element,  S& v) const { \
-				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_GET_FIELD, (S, __VA_ARGS__)) \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_GET_FIELD, (__VA_ARGS__)) \
 			} \
 			template<typename Pred> \
 			void for_each(S&& v, Pred&& pred) const { \
-				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_VISIT_FIELD, (S, __VA_ARGS__)) \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_VISIT_FIELD, (__VA_ARGS__)) \
 			} \
 			template<typename Pred> \
 			void for_each(const S& v, Pred&& pred) const { \
-				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_VISIT_FIELD, (S, __VA_ARGS__)) \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_VISIT_FIELD, (__VA_ARGS__)) \
 			} \
 			template<typename Pred> \
 			bool find_field(const char* name, Pred&& pred) { \
-				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_FIND_FIELD, (S, __VA_ARGS__)) \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_FIND_FIELD, (__VA_ARGS__)) \
 				return false; \
 			} \
 			template<typename Pred> \
 			constexpr bool find_field(size_t index, Pred&& pred) { \
-				if(index>=field_count) return false; \
-				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_FIELD_INDEX, (S, __VA_ARGS__)) \
+				if (index>=field_count) return false; \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_FIELD_INDEX, (__VA_ARGS__)) \
 				return false; \
 			} \
 			static struct_info<S>& instance() noexcept { \
@@ -509,39 +555,40 @@ inline void struct_field<T, Getter, Setter>::visit(T&& v, Pred&& pred) const
 		template<> class struct_info<S> : \
 			BOOST_PP_ENUM(BOOST_PP_TUPLE_SIZE(bases), STRUCT_INFO_INHERIT_BASE_CLASS, bases) \
 		{ public: \
+			typedef S struct_type; \
 			struct_info() = default; \
 			enum { field_count = BOOST_PP_TUPLE_SIZE((__VA_ARGS__)) };\
 			template<typename Document> \
 			void put(Document& doc, typename Document::element_type& element,  const S& v) const { \
 				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE(bases), STRUCT_MODEL_INVOKE_PUT, bases) \
-				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_PUT_FIELD, (S, __VA_ARGS__)) \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_PUT_FIELD, (__VA_ARGS__)) \
 			} \
 			template<typename Document> \
 			void get(Document& doc, const typename Document::element_type& element,  S& v) const { \
 				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE(bases), STRUCT_MODEL_INVOKE_GET, bases) \
-				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_GET_FIELD, (S, __VA_ARGS__)) \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_GET_FIELD, (__VA_ARGS__)) \
 			} \
 			template<typename Pred> \
 			void for_each(S& v, Pred&& pred) const { \
 				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE(bases), STRUCT_MODEL_INVOKE_FOR_EACH, bases) \
-				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_VISIT_FIELD, (S, __VA_ARGS__)) \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_VISIT_FIELD, (__VA_ARGS__)) \
 			} \
 			template<typename Pred> \
 			void for_each(const S& v, Pred&& pred) const { \
 				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE(bases), STRUCT_MODEL_INVOKE_FOR_EACH, bases) \
-				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_VISIT_FIELD, (S, __VA_ARGS__)) \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_VISIT_FIELD, (__VA_ARGS__)) \
 			} \
 			template<typename Pred> \
 			bool find_field(const char* name, Pred&& pred) { \
 				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE(bases), STRUCT_MODEL_INVOKE_VISIT, bases) \
-				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_FIND_FIELD, (S, __VA_ARGS__)) \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_FIND_FIELD, (__VA_ARGS__)) \
 				return false; \
 			} \
 			template<typename Pred> \
 			constexpr bool find_field(size_t index, Pred&& pred) { \
 				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE(bases), STRUCT_MODEL_FIND_INDEX, bases) \
-				if(index>=field_count) return false; \
-				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_FIELD_INDEX, (S, __VA_ARGS__)) \
+				if (index>=field_count) return false; \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_FIELD_INDEX, (__VA_ARGS__)) \
 				return false; \
 			} \
 			static struct_info<S>& instance() noexcept { \
@@ -553,6 +600,64 @@ inline void struct_field<T, Getter, Setter>::visit(T&& v, Pred&& pred) const
 	} \
 	STRUCT_MODEL_FUNCTIONS(S) \
 }
+
+#define STRUCT_MODEL_TUPLE_ELEMENT(z, i, fields) \
+	BOOST_PP_TUPLE_ELEM(1, BOOST_PP_TUPLE_ELEM(i, fields))
+
+#define STRUCT_MODEL_TUPLE_DEFINE(t) \
+	std::tuple<BOOST_PP_ENUM(BOOST_PP_TUPLE_SIZE(t), STRUCT_MODEL_TUPLE_ELEMENT, t)>
+
+#define STRUCT_MODEL_TUPLE_INIT_FIELD_IMPL(i, field) \
+	struct_tuple_field<struct_type, i> STRUCT_MODEL_FIELDVAR(field) \
+	{ STRUCT_MODEL_FIELD_NAME(field) };
+
+#define STRUCT_MODEL_TUPLE_INIT_TUPLE_FIELD(z, i, fields) \
+	STRUCT_MODEL_TUPLE_INIT_FIELD_IMPL(i, BOOST_PP_TUPLE_ELEM(i, fields))
+
+#define STRUCT_MODEL_TUPLE(...)  \
+	namespace leech { \
+		namespace detail { \
+		template<> class struct_info<STRUCT_MODEL_TUPLE_DEFINE((__VA_ARGS__))> { public: \
+			typedef STRUCT_MODEL_TUPLE_DEFINE((__VA_ARGS__)) struct_type;\
+			struct_info() = default; \
+			enum { field_count = BOOST_PP_TUPLE_SIZE((__VA_ARGS__)) };\
+			template<typename Document> \
+			void put(Document& doc, typename Document::element_type& element,  const struct_type& v) const { \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_PUT_FIELD, (__VA_ARGS__)) \
+			} \
+			template<typename Document> \
+			void get(Document& doc, const typename Document::element_type& element,  struct_type& v) const { \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_GET_FIELD, (__VA_ARGS__)) \
+			} \
+			template<typename Pred> \
+			void for_each(struct_type&& v, Pred&& pred) const { \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_VISIT_FIELD, (__VA_ARGS__)) \
+			} \
+			template<typename Pred> \
+			void for_each(const struct_type& v, Pred&& pred) const { \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_VISIT_FIELD, (__VA_ARGS__)) \
+			} \
+			template<typename Pred> \
+			bool find_field(const char* name, Pred&& pred) { \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_FIND_FIELD, (__VA_ARGS__)) \
+				return false; \
+			} \
+			template<typename Pred> \
+			constexpr bool find_field(size_t index, Pred&& pred) { \
+				if (index>=field_count) return false; \
+				BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_FIELD_INDEX, (__VA_ARGS__)) \
+				return false; \
+			} \
+			static struct_info<struct_type>& instance() noexcept { \
+				static struct_info<struct_type> object; return object; \
+			} \
+			private: \
+			BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_TUPLE_INIT_TUPLE_FIELD, (__VA_ARGS__)) \
+		}; \
+	} \
+	STRUCT_MODEL_FUNCTIONS(STRUCT_MODEL_TUPLE_DEFINE((__VA_ARGS__))) \
+}
+
 
 #define STRUCT_MODEL_SET_OPTIONAL_VALUE(S, field, value) \
 	leech::detail::struct_info<S>::instance().find_field(#field, [](auto& field_info) { field_info.optional(value); })
