@@ -19,7 +19,8 @@ namespace json
 		typedef nlohmann::json::value_type element_type;
 
 		document() = default;
-		explicit document(element_type&& root) noexcept : _root(std::forward<element_type>(root)) { }
+		explicit document(const element_type& root) noexcept : _root(root) { }
+		explicit document(element_type&& root) noexcept : _root(std::move(root)) { }
 
 		std::string save(const int indent = -1,	char indent_char = ' ',
 			bool ensure_ascii = false)
@@ -97,6 +98,24 @@ namespace json
 
 }
 
+}
+
+#define STRUCT_FROM_JSON(S) \
+namespace nlohmann { \
+	template <> struct adl_serializer<S> { \
+		static void from_json(const json& j, S& field) { \
+			leech::get(leech::json::document(j), field); \
+		} \
+	}; \
+}
+
+#define STRUCT_TO_JSON(S) \
+namespace nlohmann { \
+	template <> struct adl_serializer<S> { \
+		static void to_json(json& j, const S& field) { \
+			j=move(leech::put(leech::json::document(), field).root()); \
+		} \
+	}; \
 }
 
 #endif //_MODEL_JSON_HPP_

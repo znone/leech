@@ -93,5 +93,19 @@ inline document load_file(const char* filename)
 }
 }
 
+#define STRUCT_FROM_YAML(S) \
+namespace YAML { \
+	template <> struct as_if<S, void> { \
+	explicit as_if(const Node& node_) : node(node_) {} \
+		const Node& node; \
+		S operator()() const { \
+			S value; \
+			leech::get(leech::yaml::document(node), value); \
+			return value; \
+		} \
+	}; \
+}
+
+ 
 #endif //_MODEL_YAML_HPP_
 

@@ -92,4 +92,28 @@ namespace leech
 	}
 }
 
+#define STRUCT_FROM_TOMML(S) \
+namespace toml { \
+	template<> struct from<S> { \
+		template<typename C, template<typename ...> class M, template<typename ...> class A> \
+		static ext::foo from_toml(const basic_value<C, M, A>& v) { \
+			S data; \
+			leech::get<S>(leech::tomml::document(v), data); \
+			return data; \
+		} \
+	}; \
+}
+
+#define STRUCT_TO_TOML(S) \
+namespace toml { \
+	template<> struct into<S> { \
+		static toml::value into_toml(const S& data) { \
+			leech::toml::document doc; \
+			return leech::put<S>(doc, data); \
+			return doc.root(); \
+		} \
+	}; \
+}
+
+
 #endif //_LEECH_TOML_HPP_
