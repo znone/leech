@@ -17,8 +17,10 @@ namespace leech
 
 namespace detail 
 {
-	template<typename T>
-	class struct_info;
+	namespace {
+		template<typename T>
+		class struct_info;
+	}
 
 	template<typename T, typename M>
 	struct setter
@@ -483,7 +485,7 @@ inline void struct_field<T, Getter, Setter>::visit(T&& v, Pred&& pred) const
 
 #define STRUCT_MODEL(S, ...)  \
 	namespace leech { \
-		namespace detail { \
+		namespace detail { namespace { \
 		template<> class struct_info<S> { public: \
 			typedef S struct_type; \
 			struct_info() = default; \
@@ -520,8 +522,8 @@ inline void struct_field<T, Getter, Setter>::visit(T&& v, Pred&& pred) const
 			} \
 			private: \
 			BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_INIT_FIELD, (S, __VA_ARGS__)) \
-		}; \
-	} \
+        }; \
+	} } \
 	STRUCT_MODEL_FUNCTIONS(S) \
 }
 
@@ -551,7 +553,7 @@ inline void struct_field<T, Getter, Setter>::visit(T&& v, Pred&& pred) const
 
 #define STRUCT_MODEL_INHERIT(S, bases, ...)  \
 	namespace leech { \
-		namespace detail { \
+		namespace detail { namespace { \
 		template<> class struct_info<S> : \
 			BOOST_PP_ENUM(BOOST_PP_TUPLE_SIZE(bases), STRUCT_INFO_INHERIT_BASE_CLASS, bases) \
 		{ public: \
@@ -597,7 +599,7 @@ inline void struct_field<T, Getter, Setter>::visit(T&& v, Pred&& pred) const
 			private: \
 			BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_INIT_FIELD, (S, __VA_ARGS__)) \
 		}; \
-	} \
+	} } \
 	STRUCT_MODEL_FUNCTIONS(S) \
 }
 
@@ -616,7 +618,7 @@ inline void struct_field<T, Getter, Setter>::visit(T&& v, Pred&& pred) const
 
 #define STRUCT_MODEL_TUPLE(...)  \
 	namespace leech { \
-		namespace detail { \
+		namespace detail { namespace { \
 		template<> class struct_info<STRUCT_MODEL_TUPLE_DEFINE((__VA_ARGS__))> { public: \
 			typedef STRUCT_MODEL_TUPLE_DEFINE((__VA_ARGS__)) struct_type;\
 			struct_info() = default; \
@@ -654,7 +656,7 @@ inline void struct_field<T, Getter, Setter>::visit(T&& v, Pred&& pred) const
 			private: \
 			BOOST_PP_REPEAT(BOOST_PP_TUPLE_SIZE((__VA_ARGS__)), STRUCT_MODEL_TUPLE_INIT_TUPLE_FIELD, (__VA_ARGS__)) \
 		}; \
-	} \
+	} } \
 	STRUCT_MODEL_FUNCTIONS(STRUCT_MODEL_TUPLE_DEFINE((__VA_ARGS__))) \
 }
 
